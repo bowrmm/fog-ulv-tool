@@ -1,1 +1,197 @@
-# fog-ulv-tool
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>คำนวณสารเคมีควบคุมโรค (กองแมลง)</title>
+    <style>
+        /* การตั้งค่าหน้าตา (UI) เน้นความชัดเจนและการใช้งานภาคสนาม */
+        body {
+            font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h2 {
+            text-align: center;
+            color: #0056b3;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        select, input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 20px;
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            font-size: 1.2em; /* ตัวหนังสือใหญ่ */
+            box-sizing: border-box;
+        }
+        select:focus, input:focus {
+            border-color: #0056b3;
+            outline: none;
+        }
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background-color: #28a745; /* สีเขียวชัดเจน */
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.3em;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .btn:active {
+            background-color: #218838;
+        }
+        .result-box {
+            margin-top: 25px;
+            padding: 20px;
+            background-color: #e9ecef;
+            border-radius: 8px;
+            border-left: 6px solid #0056b3;
+        }
+        .result-item {
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+        .result-value {
+            font-weight: bold;
+            color: #d9534f; /* สีแดงสำหรับตัวเลขผลลัพธ์ */
+            font-size: 1.4em;
+        }
+        .note {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🧪 คำนวณการพ่นสารเคมี<br><small>(Fog & ULV)</small></h2>
+
+    <label for="chemical">เลือกชนิดสารเคมีและวิธีพ่น:</label>
+    <select id="chemical" onchange="updateDefaults()">
+        <option value="" disabled selected>-- กรุณาเลือก --</option>
+        </select>
+
+    <label for="area">ขนาดพื้นที่/ขนาดบ้าน (ตร.ม.):</label>
+    <input type="number" id="area" value="200" placeholder="เช่น 200">
+
+    <label for="flowRate">อัตราการไหลเครื่องพ่น (ลิตร/ชม.):</label>
+    <input type="number" id="flowRate" placeholder="ค่ามาตรฐานตามวิธีพ่น">
+    <div class="note">*แก้ไขได้หากเครื่องพ่นมีการปรับตั้งค่า</div>
+
+    <button class="btn" onclick="calculate()">คำนวณ</button>
+
+    <div id="result" class="result-box" style="display:none;">
+        <div class="result-item">
+            ปริมาณสารผสมที่ต้องใช้:<br>
+            <span class="result-value" id="res-volume">0</span> ซีซี (cc)
+        </div>
+        <hr>
+        <div class="result-item">
+            เวลาที่ต้องใช้พ่น:<br>
+            <span class="result-value" id="res-time">0</span> วินาที
+        </div>
+    </div>
+</div>
+
+<script>
+    // ข้อมูลจากไฟล์ Excel ของท่าน
+    const chemData = [
+        { name: "Deltamethrin (เดลต้าไซด์)", method: "Fogging", usagePerSqm: 1, defaultFlow: 24 },
+        { name: "Deltamethrin (เอส-ไบโอต้า)", method: "Fogging", usagePerSqm: 1, defaultFlow: 24 },
+        { name: "Deltamethrin (ออโต้ไซด์)", method: "Fogging", usagePerSqm: 1, defaultFlow: 24 },
+        { name: "Deltamethrin (เจสัน)", method: "Fogging", usagePerSqm: 1, defaultFlow: 24 },
+        { name: "Deltamethrin (แดททริน-เอสพี)", method: "Fogging", usagePerSqm: 1, defaultFlow: 24 },
+        
+        { name: "Deltamethrin (เดลต้าไซด์)", method: "ULV", usagePerSqm: 0.11, defaultFlow: 1.8 },
+        { name: "Deltamethrin (เอส-ไบโอต้า)", method: "ULV", usagePerSqm: 0.2, defaultFlow: 1.8 },
+        { name: "Deltamethrin (ออโต้ไซด์)", method: "ULV", usagePerSqm: 0.14, defaultFlow: 1.8 },
+        { name: "Deltamethrin (เจสัน)", method: "ULV", usagePerSqm: 0.1, defaultFlow: 1.8 },
+        { name: "Deltamethrin (แดททริน-เอสพี)", method: "ULV", usagePerSqm: 0.16, defaultFlow: 1.8 },
+        
+        { name: "Zeta-cypermethrin (ไชน๊อฟ ซีดี)", method: "Fogging", usagePerSqm: 1, defaultFlow: 24 },
+        { name: "Zeta-cypermethrin (ไชน๊อฟ ซีดี)", method: "ULV", usagePerSqm: 0.16, defaultFlow: 1.8 },
+        
+        { name: "Cypermethrin 10 EC (ลินคอล์น 25)", method: "Fogging", usagePerSqm: 1, defaultFlow: 24 },
+        { name: "Cypermethrin 10 EC (ลินคอล์น 25)", method: "ULV", usagePerSqm: 0.1, defaultFlow: 1.8 }
+    ];
+
+    const selectElem = document.getElementById('chemical');
+    const flowInput = document.getElementById('flowRate');
+    const areaInput = document.getElementById('area');
+    const resultBox = document.getElementById('result');
+
+    // เริ่มต้น: สร้างตัวเลือกใน Dropdown
+    function init() {
+        chemData.forEach((chem, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.text = `${chem.name} - [${chem.method}]`;
+            selectElem.appendChild(option);
+        });
+    }
+
+    // เมื่อเลือกสารเคมี ให้เปลี่ยนค่า Flow Rate มาตรฐาน
+    function updateDefaults() {
+        const index = selectElem.value;
+        if (index !== "") {
+            flowInput.value = chemData[index].defaultFlow;
+            resultBox.style.display = 'none'; // ซ่อนผลลัพธ์เก่าเมื่อเปลี่ยนค่า
+        }
+    }
+
+    // ฟังก์ชันคำนวณหลัก
+    function calculate() {
+        const index = selectElem.value;
+        const area = parseFloat(areaInput.value);
+        const flowRateLHr = parseFloat(flowInput.value);
+
+        if (index === "" || isNaN(area) || isNaN(flowRateLHr)) {
+            alert("กรุณาเลือกสารเคมีและกรอกข้อมูลให้ครบถ้วน");
+            return;
+        }
+
+        const selectedChem = chemData[index];
+
+        // 1. คำนวณปริมาณสารผสม (cc) = พื้นที่ (ตร.ม.) * อัตราการใช้ต่อ ตร.ม.
+        const mixedVolumeCC = area * selectedChem.usagePerSqm;
+
+        // 2. แปลง Flow Rate จาก ลิตร/ชม. เป็น cc/วินาที
+        // สูตร: (L/hr * 1000) / 3600
+        const flowRateCCSec = (flowRateLHr * 1000) / 3600;
+
+        // 3. คำนวณเวลา (วินาที) = ปริมาณสาร (cc) / อัตราไหล (cc/sec)
+        const timeSeconds = mixedVolumeCC / flowRateCCSec;
+
+        // แสดงผล
+        document.getElementById('res-volume').innerText = mixedVolumeCC.toFixed(2);
+        document.getElementById('res-time').innerText = timeSeconds.toFixed(1);
+        resultBox.style.display = 'block';
+    }
+
+    // รันฟังก์ชันเริ่มต้น
+    init();
+</script>
+
+</body>
+</html>
